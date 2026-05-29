@@ -1,0 +1,62 @@
+[workspace]
+resolver = "2"
+members = [
+    # 组件库
+    "crates/quintara-model",
+    "crates/quintara-rules",
+    "crates/quintara-opening",
+    "crates/quintara-record",
+    "crates/quintara-protocol",
+    "crates/quintara-bot",
+    "crates/quintara-arbiter",
+    # 我的 bot
+    "bots/random",
+    "bots/greedy",
+    "bots/sage",
+    "bots/titan",
+    "bots/aegis",
+    # 应用（简化版 Piskvork）
+    "apps/quintara-cli",
+]
+
+[workspace.package]
+version      = "0.0.1"
+edition      = "2021"
+rust-version = "1.95"
+
+[workspace.dependencies]
+# 组件 crate
+quintara-model   = { path = "crates/quintara-model" }
+quintara-rules   = { path = "crates/quintara-rules" }
+quintara-opening = { path = "crates/quintara-opening" }
+quintara-record  = { path = "crates/quintara-record" }
+quintara-protocol = { path = "crates/quintara-protocol" }
+quintara-bot     = { path = "crates/quintara-bot" }
+quintara-arbiter = { path = "crates/quintara-arbiter" }
+
+# bot 实现
+quintara-bot-random = { path = "bots/random" }
+quintara-bot-greedy = { path = "bots/greedy" }
+quintara-bot-sage = { path = "bots/sage" }
+quintara-bot-titan = { path = "bots/titan" }
+quintara-bot-aegis = { path = "bots/aegis" }
+
+# 外部基线依赖
+serde      = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand       = "0.8"
+thiserror  = "1"
+clap       = { version = "4", features = ["derive"] }
+ratatui    = "0.29"
+
+[workspace.lints.rust]
+unsafe_code     = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all         = { level = "warn", priority = -1 }
+pedantic    = { level = "warn", priority = -1 }
+todo        = "warn"
+dbg_macro   = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
