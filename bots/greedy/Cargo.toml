@@ -1,0 +1,20 @@
+[package]
+name = "quintara-bot-greedy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "pbrain-greedy"
+path = "src/main.rs"
+
+[dependencies]
+quintara-bot = { workspace = true }
+quintara-model = { workspace = true }
+quintara-rules = { workspace = true }
+
+[lints]
+workspace = true

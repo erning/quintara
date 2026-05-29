@@ -1,0 +1,25 @@
+[package]
+name = "quintara-bot-random"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "pbrain-random"
+path = "src/main.rs"
+
+[dependencies]
+quintara-bot = { workspace = true }
+quintara-model = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+quintara-protocol = { workspace = true }
+quintara-arbiter = { workspace = true }
+quintara-bot-greedy = { workspace = true }
+
+[lints]
+workspace = true
