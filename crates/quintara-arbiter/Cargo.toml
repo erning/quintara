@@ -1,0 +1,20 @@
+[package]
+name = "quintara-arbiter"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+quintara-model = { workspace = true }
+quintara-rules = { workspace = true }
+quintara-bot = { workspace = true }
+quintara-protocol = { workspace = true }
+
+[dev-dependencies]
+quintara-bot = { workspace = true }
+quintara-record = { workspace = true }
+quintara-bot-random = { workspace = true }
+quintara-bot-greedy = { workspace = true }
+
+[lints]
+workspace = true
