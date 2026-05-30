@@ -1,0 +1,22 @@
+[package]
+name = "quintara-bot-titan"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "pbrain-titan"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+quintara-bot = { workspace = true }
+quintara-model = { workspace = true }
+quintara-rules = { workspace = true }
+rand = { workspace = true }
+
+[lints]
+workspace = true
