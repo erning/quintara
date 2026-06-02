@@ -1,0 +1,27 @@
+[package]
+name = "quintara-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "quintara"
+path = "src/main.rs"
+
+[dependencies]
+quintara-model = { workspace = true }
+quintara-rules = { workspace = true }
+quintara-opening = { workspace = true }
+quintara-record = { workspace = true }
+quintara-bot = { workspace = true }
+quintara-arbiter = { workspace = true }
+quintara-bot-random = { workspace = true }
+quintara-bot-greedy = { workspace = true }
+quintara-bot-sage = { workspace = true }
+quintara-bot-titan = { workspace = true }
+quintara-bot-aegis = { workspace = true }
+clap = { workspace = true }
+ratatui = { workspace = true }
+
+[lints]
+workspace = true
