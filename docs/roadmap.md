@@ -79,6 +79,7 @@ P6  Swift 全功能 GUI（独立项目，消费引擎）
   - 参考:Allis 的 threat-space search(证明无禁手先手必胜);开源 Rapfi、商业 Yixin。
 - **titan「对 sage 零负」专项（已收尾，titan 冻结）**:目标是 titan 对 sage 一局不输。沿 eval 方向试了 7 次(更尖锐 / 更平滑的权重都回归),结论是现有 eval 已接近最优、再调只会变差,靠改 eval 达不到零负。该专项结束,titan 不再改动。**强 bot 改由 aegis 另起一套独立架构。**
 - **`aegis`(骨架,在建)— 刻意不同于 titan 的新架构**:`builtin:aegis` + `pbrain-aegis`。`AegisBot::next_move` 只做三件任何架构都需要的前置——空盘走天元、能成五就成五、必堵对手成五点;其余交给 `AegisBot::choose`,**那里是搜索架构的插入点**。当前 `choose` 是占位的 greedy(离子 ≤2 候选里按「我最长连子 ×2 + 对手最长连子」打分、同分随机),只为让骨架能编译、能合法对弈。换架构(MCTS / PNS / 学习型评估等)时只改 `choose`;需要更复杂的盘面表示 / 评估就在 `bots/aegis/` 内加模块。
+- **`onyx`(攻击型,在建)— 专攻「freestyle 15×15 执黑必胜」**:`builtin:onyx` + `pbrain-onyx`。自研搜索(不复用 titan):`grid`(增量 make/unmake + 威胁原语) / `eval`(五窗计数 + 局部连子排序) / `search`(**VCF** 连续四杀 + 时间预算内的迭代加深 α-β)。每手 attack-first:立即胜 → 必堵 → VCF → 防守过滤(剔除走完被对手 VCF 反杀的着) → α-β。控时收紧到预算 75% 且留 ≥150ms 绝对余量、VCF 每 31 节点查钟,`--timeout-turn 500` 下 285 手最慢 371ms、零超时。**M1 已达标**:执黑对 sage 多轮全胜;对 titan 已能偶胜 / 逼和。**M2 计划**:VCT(含活三的连续威胁搜索)+ 精确棋型识别 + free-style 黑胜开局书,朝稳定击败 rapfi 推进。
 
 ## P4 — 规则 / 协议深化 ← 下一步
 

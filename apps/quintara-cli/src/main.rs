@@ -15,6 +15,7 @@ use clap::{Parser, Subcommand};
 use quintara_arbiter::{Event, MatchConductor, SeatConfig};
 use quintara_bot_aegis::AegisBot;
 use quintara_bot_greedy::GreedyBot;
+use quintara_bot_onyx::OnyxBot;
 use quintara_bot_random::RandomBot;
 use quintara_bot_sage::SageBot;
 use quintara_bot_titan::TitanBot;
@@ -488,6 +489,7 @@ fn build_seat(spec: &str, timeout: Duration) -> Result<(SeatConfig, bool), Strin
             "sage" => Box::new(SageBot::new()),
             "titan" => Box::new(build_titan(&opts)?),
             "aegis" => Box::new(AegisBot::new()),
+            "onyx" => Box::new(OnyxBot::new()),
             other => return Err(format!("unknown builtin bot: {other}")),
         };
         if key != "titan" && !opts.is_empty() {

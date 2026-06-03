@@ -54,7 +54,7 @@ quintara 是一个**跨平台的五子棋对局引擎与管理器**，个人爱�
 
 我的机器人 bots/（依赖 bot crate）
   <name>/   每个 bot 一个：lib(impl bot::MoveSource) + pbrain-<name> bin(用 bot::serve 讲 stdio)
-            random / greedy / sage / titan / aegis 各自独立；rapfi 是外部 C++ 引擎适配（不在 workspace）
+            random / greedy / sage / titan / aegis / onyx 各自独立；rapfi 是外部 C++ 引擎适配（不在 workspace）
 
 应用 apps/
   quintara-cli   `quintara` 二进制：文本对弈 + 交互式 TUI（src/tui.rs，ratatui）+ bot 开发 / 调试

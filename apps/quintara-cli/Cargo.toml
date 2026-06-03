@@ -20,6 +20,7 @@ quintara-bot-greedy = { workspace = true }
 quintara-bot-sage = { workspace = true }
 quintara-bot-titan = { workspace = true }
 quintara-bot-aegis = { workspace = true }
+quintara-bot-onyx = { workspace = true }
 clap = { workspace = true }
 ratatui = { workspace = true }
 

@@ -15,6 +15,7 @@ members = [
     "bots/sage",
     "bots/titan",
     "bots/aegis",
+    "bots/onyx",
     # 应用（简化版 Piskvork）
     "apps/quintara-cli",
 ]
@@ -40,6 +41,7 @@ quintara-bot-greedy = { path = "bots/greedy" }
 quintara-bot-sage = { path = "bots/sage" }
 quintara-bot-titan = { path = "bots/titan" }
 quintara-bot-aegis = { path = "bots/aegis" }
+quintara-bot-onyx = { path = "bots/onyx" }
 
 # 外部基线依赖
 serde      = { version = "1", features = ["derive"] }

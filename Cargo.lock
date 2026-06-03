@@ -458,6 +458,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "quintara-bot-onyx"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "quintara-bot",
+ "quintara-model",
+]
+
+[[package]]
 name = "quintara-bot-random"
 version = "0.0.1"
 dependencies = [
@@ -499,6 +508,7 @@ dependencies = [
  "quintara-bot",
  "quintara-bot-aegis",
  "quintara-bot-greedy",
+ "quintara-bot-onyx",
  "quintara-bot-random",
  "quintara-bot-sage",
  "quintara-bot-titan",

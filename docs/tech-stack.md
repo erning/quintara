@@ -19,7 +19,7 @@
 | `model` / `rules` / `opening` / `record` / `protocol` | 纯 Rust（基本无外部依赖；`record` 用 `serde` 做 PSQ/REC 文本 io） | 纯组件：状态 / 规则 / 开局 / 棋谱 / Gomocup 协议编解码 |
 | `bot` | `std::process` + OS 线程 + `std::sync::mpsc` | **写 bot + 跑 bot 一站式**：`MoveSource` + `StopFlag`、`serve`（跑成 pbrain）、`spawn` → `ExternalBot`（host 侧驱动外部 pbrain）。我的 bot 依赖它 |
 | `arbiter` | 纯 Rust（OS 线程内嵌于 Player 实现） | 单局编排 `MatchConductor` + `Player` 端口（Human / 内置 bot / 外部 pbrain） |
-| `bots/<name>` | Rust + `rand`（按需）、`clap`（titan）；lib + `pbrain-<name>` bin | 我的 bot：random / greedy / sage / titan / aegis；依赖 `bot`，bin 用 `bot::serve` |
+| `bots/<name>` | Rust + `rand`（按需）、`clap`（titan / onyx）；lib + `pbrain-<name>` bin | 我的 bot：random / greedy / sage / titan / aegis / onyx；依赖 `bot`，bin 用 `bot::serve` |
 | `apps/quintara-cli` | `clap` + `ratatui` + 标准 stdin/stdout | `quintara` 二进制：文本对弈 + 交互式 TUI（`src/tui.rs`）+ bot 调试 |
 | `arena`（未建） | 纯 Rust（复用 arbiter） | 后续：本地锦标赛 + 结果表 |
 | `ffi`（未建） | `cdylib` / `staticlib` + C-ABI（`cbindgen`） | 后续：给 Swift GUI 链接的引擎边界 |
@@ -48,7 +48,7 @@ quintara/
 │   ├── quintara-bot/         # 写 + 跑 bot 一站式：MoveSource / StopFlag + serve + spawn / ExternalBot
 │   └── quintara-arbiter/     # 单局编排 MatchConductor + Player 端口：回合、时钟、悔棋、开局、终局、事件
 ├── bots/                     # 我的 bot（每个：lib impl bot::MoveSource + pbrain-<name> bin）
-│   ├── random/ greedy/ sage/ titan/ aegis/   # workspace 内的 Rust bot
+│   ├── random/ greedy/ sage/ titan/ aegis/ onyx/   # workspace 内的 Rust bot
 │   └── rapfi/                # 外部 C++ 引擎适配（build.sh，不在 workspace）
 └── apps/
     └── quintara-cli/         # 顶层二进制 `quintara`：match / show 子命令、文本画盘 + TUI、PSQ、bot 调试

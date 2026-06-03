@@ -1,0 +1,20 @@
+[package]
+name = "quintara-bot-onyx"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "pbrain-onyx"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+quintara-bot = { workspace = true }
+quintara-model = { workspace = true }
+
+[lints]
+workspace = true
