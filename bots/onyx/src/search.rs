@@ -183,6 +183,8 @@ struct Searcher<'a> {
     aborted: bool,
     /// 置换表：跨迭代加深各层共享，命中即剪枝 / 提着。
     tt: HashMap<u64, TtEntry>,
+    /// 杀手着：每层最近两个引发 β 截断的着，用于同层兄弟节点的着法排序。
+    killers: Vec<[Option<(i32, i32)>; 2]>,
 }
 
 impl Searcher<'_> {
@@ -194,6 +196,15 @@ impl Searcher<'_> {
             self.aborted = true;
         }
         self.aborted
+    }
+
+    /// 记录引发 β 截断的杀手着（新着滑入槽 0，旧着退到槽 1；去重）。
+    fn record_killer(&mut self, ply: i32, mv: (i32, i32)) {
+        let p = ply as usize;
+        if p < self.killers.len() && self.killers[p][0] != Some(mv) {
+            self.killers[p][1] = self.killers[p][0];
+            self.killers[p][0] = Some(mv);
+        }
     }
 
     fn negamax(
@@ -231,22 +242,35 @@ impl Searcher<'_> {
         }
 
         let opp = other(side);
-        let mut cands = grid.neighborhood_all(2);
-        if cands.is_empty() {
+        let raw = grid.neighborhood_all(2);
+        if raw.is_empty() {
             return evaluate(grid, side, self.win);
         }
+        let mut cands = raw;
         cands.sort_by_key(|&(r, c)| std::cmp::Reverse(order_key(grid, r, c, side, opp)));
-        // 置换表首选着提到最前（在截断前，确保不被裁掉）。
-        if let Some(m) = tt_move {
-            if let Some(pos) = cands.iter().position(|&x| x == m) {
-                cands.swap(0, pos);
+        // 排序后把首选着（置换表着 + 两个杀手着）提到最前——在截断前，确保不被裁掉。
+        let killers = self
+            .killers
+            .get(ply as usize)
+            .copied()
+            .unwrap_or([None, None]);
+        let priorities = [tt_move, killers[0], killers[1]];
+        let mut ordered: Vec<(i32, i32)> = Vec::with_capacity(cands.len());
+        for &p in priorities.iter().flatten() {
+            if cands.contains(&p) && !ordered.contains(&p) {
+                ordered.push(p);
             }
         }
-        cands.truncate(TOP_K);
+        for &m in &cands {
+            if !ordered.contains(&m) {
+                ordered.push(m);
+            }
+        }
+        ordered.truncate(TOP_K);
 
         let mut best = -WIN;
         let mut best_move = None;
-        for (r, c) in cands {
+        for (r, c) in ordered {
             let val = if grid.would_win(r, c, side, self.win) {
                 WIN - ply
             } else {
@@ -266,6 +290,7 @@ impl Searcher<'_> {
                 alpha = best;
             }
             if alpha >= beta {
+                self.record_killer(ply, (r, c));
                 break;
             }
         }
@@ -316,6 +341,7 @@ pub fn search_best(
         nodes: 0,
         aborted: false,
         tt: HashMap::new(),
+        killers: vec![[None, None]; (max_depth as usize) + 2],
     };
 
     for depth in 1..=max_depth {
