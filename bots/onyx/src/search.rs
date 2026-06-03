@@ -4,12 +4,13 @@
 //!   胜。声明胜时不假设对手配合——对手要么挡唯一成五点、要么自己已能成五（此时该线失败）。
 //! - [`search_best`]：安静局面的兜底，negamax + α-β + 迭代加深，受 `deadline` / `stop` 约束。
 
+use std::collections::HashMap;
 use std::time::Instant;
 
 use quintara_bot::StopFlag;
 
 use crate::eval::{evaluate, order_key};
-use crate::grid::{Grid, Win};
+use crate::grid::{Grid, Win, BLACK};
 
 /// 杀棋分值（远大于任何静态评估）。
 pub const WIN: i32 = 10_000_000;
@@ -21,6 +22,35 @@ const TOP_K: usize = 16;
 const VCF_MAX_DEPTH: i32 = 40;
 /// negamax 多久检查一次时钟（节点数）。
 const TIME_CHECK_MASK: u64 = 255;
+/// 区分行棋方的 Zobrist 侧键（白方时 xor 进探查键）。
+const SIDE_KEY: u64 = 0x9E37_79B9_7F4A_7C15;
+
+/// 置换表的界限类型。
+#[derive(Clone, Copy)]
+enum Bound {
+    Exact,
+    Lower,
+    Upper,
+}
+
+/// 置换表条目。
+#[derive(Clone, Copy)]
+struct TtEntry {
+    depth: i32,
+    value: i32,
+    bound: Bound,
+    best: Option<(i32, i32)>,
+}
+
+/// 行棋方对应的探查键偏移。
+#[inline]
+fn side_key(side: u8) -> u64 {
+    if side == BLACK {
+        0
+    } else {
+        SIDE_KEY
+    }
+}
 /// VCF 多久检查一次时钟。VCF 单节点很「重」（`four_moves` → 嵌套 `count_win_points` 邻域扫描），
 /// 故取远更密的间隔，把超时溢出从约 100ms 压到约 10ms。
 const VCF_TIME_MASK: u64 = 31;
@@ -151,6 +181,8 @@ struct Searcher<'a> {
     deadline: Instant,
     nodes: u64,
     aborted: bool,
+    /// 置换表：跨迭代加深各层共享，命中即剪枝 / 提着。
+    tt: HashMap<u64, TtEntry>,
 }
 
 impl Searcher<'_> {
@@ -170,7 +202,7 @@ impl Searcher<'_> {
         side: u8,
         depth: i32,
         mut alpha: i32,
-        beta: i32,
+        mut beta: i32,
         ply: i32,
     ) -> i32 {
         if self.out_of_time() {
@@ -179,22 +211,48 @@ impl Searcher<'_> {
         if depth == 0 {
             return evaluate(grid, side, self.win);
         }
+
+        // 置换表探查：足够深的条目可直接给界 / 剪枝，并提供首选着。
+        let key = grid.hash() ^ side_key(side);
+        let alpha_orig = alpha;
+        let mut tt_move = None;
+        if let Some(entry) = self.tt.get(&key).copied() {
+            tt_move = entry.best;
+            if entry.depth >= depth {
+                match entry.bound {
+                    Bound::Exact => return entry.value,
+                    Bound::Lower => alpha = alpha.max(entry.value),
+                    Bound::Upper => beta = beta.min(entry.value),
+                }
+                if alpha >= beta {
+                    return entry.value;
+                }
+            }
+        }
+
         let opp = other(side);
         let mut cands = grid.neighborhood_all(2);
         if cands.is_empty() {
             return evaluate(grid, side, self.win);
         }
         cands.sort_by_key(|&(r, c)| std::cmp::Reverse(order_key(grid, r, c, side, opp)));
+        // 置换表首选着提到最前（在截断前，确保不被裁掉）。
+        if let Some(m) = tt_move {
+            if let Some(pos) = cands.iter().position(|&x| x == m) {
+                cands.swap(0, pos);
+            }
+        }
         cands.truncate(TOP_K);
 
         let mut best = -WIN;
+        let mut best_move = None;
         for (r, c) in cands {
             let val = if grid.would_win(r, c, side, self.win) {
                 WIN - ply
             } else {
-                grid.place(r, c, side);
+                grid.make(r, c, side);
                 let v = -self.negamax(grid, opp, depth - 1, -beta, -alpha, ply + 1);
-                grid.unplace(r, c, side);
+                grid.unmake(r, c, side);
                 v
             };
             if self.aborted {
@@ -202,6 +260,7 @@ impl Searcher<'_> {
             }
             if val > best {
                 best = val;
+                best_move = Some((r, c));
             }
             if best > alpha {
                 alpha = best;
@@ -210,6 +269,23 @@ impl Searcher<'_> {
                 break;
             }
         }
+
+        let bound = if best <= alpha_orig {
+            Bound::Upper
+        } else if best >= beta {
+            Bound::Lower
+        } else {
+            Bound::Exact
+        };
+        self.tt.insert(
+            key,
+            TtEntry {
+                depth,
+                value: best,
+                bound,
+                best: best_move,
+            },
+        );
         best
     }
 }
@@ -228,18 +304,23 @@ pub fn search_best(
     if root_moves.is_empty() {
         return None;
     }
+    // 全量算好基准局面的增量 score / hash，之后 make/unmake 增量维护。
+    grid.prepare_search();
     let opp = other(me);
     let mut best = root_moves[0];
     let mut order = root_moves.to_vec();
+    let mut searcher = Searcher {
+        win,
+        stop,
+        deadline,
+        nodes: 0,
+        aborted: false,
+        tt: HashMap::new(),
+    };
 
     for depth in 1..=max_depth {
-        let mut searcher = Searcher {
-            win,
-            stop,
-            deadline,
-            nodes: 0,
-            aborted: false,
-        };
+        searcher.nodes = 0;
+        searcher.aborted = false;
         let mut alpha = -WIN;
         let beta = WIN;
         let mut local_best = order[0];
@@ -250,9 +331,9 @@ pub fn search_best(
             let val = if grid.would_win(r, c, me, win) {
                 WIN
             } else {
-                grid.place(r, c, me);
+                grid.make(r, c, me);
                 let v = -searcher.negamax(grid, opp, depth - 1, -beta, -alpha, 1);
-                grid.unplace(r, c, me);
+                grid.unmake(r, c, me);
                 v
             };
             if searcher.aborted {

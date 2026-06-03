@@ -193,7 +193,7 @@ mod tests {
     use quintara_bot::{MoveSource, StopFlag};
     use quintara_model::{Board, Cell, Color, Move, Position, RuleSet, TurnContext};
 
-    use crate::grid::{Grid, Win, BLACK};
+    use crate::grid::{Grid, Win, BLACK, WHITE};
     use crate::{search, OnyxBot};
 
     fn board_with(black: &[(u8, u8)], white: &[(u8, u8)]) -> Board {
@@ -260,6 +260,40 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mv = search::vcf_win_move(&mut grid, BLACK, Win::Overline, &StopFlag::new(), deadline);
         assert_eq!(mv, Some((7, 8)), "expected VCF to start with (7,8)");
+    }
+
+    #[test]
+    fn incremental_score_and_hash_match_full_recompute() {
+        let blacks = [(7, 7), (7, 8), (8, 9), (5, 6), (9, 9), (6, 10)];
+        let whites = [(7, 9), (8, 8), (6, 7), (9, 8), (5, 9)];
+
+        // 基准：从 board 构建后全量重算。
+        let mut base = Grid::from_board(&board_with(&blacks, &whites));
+        base.prepare_search();
+        let base_eval = base.eval_for(BLACK);
+        let base_hash = base.hash();
+
+        // 增量：空盘起，逐手 make 到相同局面。
+        let mut inc = Grid::from_board(&Board::square(15));
+        inc.prepare_search();
+        for &(r, c) in &blacks {
+            inc.make(i32::from(r), i32::from(c), BLACK);
+        }
+        for &(r, c) in &whites {
+            inc.make(i32::from(r), i32::from(c), WHITE);
+        }
+        assert_eq!(inc.eval_for(BLACK), base_eval, "incremental score drifted");
+        assert_eq!(inc.hash(), base_hash, "incremental hash drifted");
+
+        // make/unmake 往返必须把 score 与 hash 精确还原。
+        let (e0, h0) = (inc.eval_for(BLACK), inc.hash());
+        inc.make(0, 0, BLACK);
+        inc.unmake(0, 0, BLACK);
+        assert_eq!(
+            (inc.eval_for(BLACK), inc.hash()),
+            (e0, h0),
+            "round-trip drift"
+        );
     }
 
     #[test]

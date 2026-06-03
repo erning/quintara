@@ -18,6 +18,21 @@ const OFF: u8 = 3;
 /// 四个方向：横、竖、↘、↙。
 pub const DIRS: [(i32, i32); 4] = [(0, 1), (1, 0), (1, 1), (1, -1)];
 
+/// 单色 5-窗口按子数加权（下标 = 窗口内该色子数 1..=5）。增量评估的基本权重。
+const WINDOW_WEIGHT: [i32; 6] = [0, 1, 12, 144, 1728, 200_000];
+
+/// Zobrist 键的固定种子（确定性，便于复现）。
+const ZOBRIST_SEED: u64 = 0x4F4E_5958_5A4F_4252;
+
+/// splitmix64：确定性地铺一串 Zobrist 键。
+fn splitmix64(state: &mut u64) -> u64 {
+    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
 /// 把 [`Color`] 映射到内部编码。
 #[must_use]
 pub fn code_of(color: Color) -> u8 {
@@ -60,6 +75,13 @@ pub struct Grid {
     gen: u32,
     /// 邻域枚举的可复用棋子缓冲（避免每次 clone 分配）。
     scratch: Vec<(i32, i32)>,
+    /// 增量维护的五窗计数分（黑 / 白）。仅在 `make` / `unmake` 路径上更新；
+    /// `place` / `unplace`（威胁判定用）不动它。搜索前用 [`Grid::prepare_search`] 全量重算。
+    score_black: i32,
+    score_white: i32,
+    /// 每格每色的 Zobrist 键；`hash` 为当前局面的增量哈希（同样只走 `make` / `unmake`）。
+    zobrist: Vec<[u64; 2]>,
+    hash: u64,
 }
 
 impl Grid {
@@ -68,15 +90,24 @@ impl Grid {
     pub fn from_board(board: &quintara_model::Board) -> Self {
         let w = i32::from(board.width());
         let h = i32::from(board.height());
+        let cell_count = (w * h) as usize;
+        let mut seed = ZOBRIST_SEED;
+        let zobrist = (0..cell_count)
+            .map(|_| [splitmix64(&mut seed), splitmix64(&mut seed)])
+            .collect();
         let mut grid = Self {
             w,
             h,
-            cells: vec![EMPTY; (w * h) as usize],
+            cells: vec![EMPTY; cell_count],
             black: Vec::new(),
             white: Vec::new(),
-            stamp: vec![0; (w * h) as usize],
+            stamp: vec![0; cell_count],
             gen: 0,
             scratch: Vec::new(),
+            score_black: 0,
+            score_white: 0,
+            zobrist,
+            hash: 0,
         };
         for r in 0..h {
             for c in 0..w {
@@ -89,16 +120,6 @@ impl Grid {
             }
         }
         grid
-    }
-
-    #[must_use]
-    pub fn width(&self) -> i32 {
-        self.w
-    }
-
-    #[must_use]
-    pub fn height(&self) -> i32 {
-        self.h
     }
 
     #[must_use]
@@ -144,6 +165,123 @@ impl Grid {
         };
         if let Some(pos) = list.iter().rposition(|&p| p == (r, c)) {
             list.swap_remove(pos);
+        }
+    }
+
+    #[inline]
+    fn in_bounds(&self, r: i32, c: i32) -> bool {
+        (0..self.h).contains(&r) && (0..self.w).contains(&c)
+    }
+
+    /// 当前局面的 Zobrist 哈希（仅在 `make` / `unmake` + [`Grid::prepare_search`] 后有意义）。
+    #[inline]
+    #[must_use]
+    pub fn hash(&self) -> u64 {
+        self.hash
+    }
+
+    /// 从 `side` 视角的增量评估分：`score(side) - score(opp)`，O(1)。
+    #[inline]
+    #[must_use]
+    pub fn eval_for(&self, side: u8) -> i32 {
+        if side == BLACK {
+            self.score_black - self.score_white
+        } else {
+            self.score_white - self.score_black
+        }
+    }
+
+    /// 落子（增量维护 score + hash）——**仅供 negamax 搜索**。须与 [`Grid::unmake`] 配对，
+    /// 且调用前必须先 [`Grid::prepare_search`] 把基准局面的 score / hash 算好。
+    pub fn make(&mut self, r: i32, c: i32, color: u8) {
+        self.score_windows(r, c, -1);
+        let i = self.idx(r, c);
+        self.cells[i] = color;
+        if color == BLACK {
+            self.black.push((r, c));
+        } else {
+            self.white.push((r, c));
+        }
+        self.hash ^= self.zobrist[i][(color - 1) as usize];
+        self.score_windows(r, c, 1);
+    }
+
+    /// 撤销最近一次 [`Grid::make`]（LIFO，增量回滚 score + hash）。
+    pub fn unmake(&mut self, r: i32, c: i32, color: u8) {
+        self.score_windows(r, c, -1);
+        let i = self.idx(r, c);
+        self.cells[i] = EMPTY;
+        let list = if color == BLACK {
+            &mut self.black
+        } else {
+            &mut self.white
+        };
+        if let Some(pos) = list.iter().rposition(|&p| p == (r, c)) {
+            list.swap_remove(pos);
+        }
+        self.hash ^= self.zobrist[i][(color - 1) as usize];
+        self.score_windows(r, c, 1);
+    }
+
+    /// 全量重算 score + hash，使其与当前棋面一致——每手搜索开始前调用一次。
+    pub fn prepare_search(&mut self) {
+        self.score_black = 0;
+        self.score_white = 0;
+        for (dr, dc) in DIRS {
+            for r in 0..self.h {
+                for c in 0..self.w {
+                    if self.in_bounds(r + dr * 4, c + dc * 4) {
+                        let (b, w) = self.window_contrib(r, c, dr, dc);
+                        self.score_black += b;
+                        self.score_white += w;
+                    }
+                }
+            }
+        }
+        self.hash = 0;
+        for k in 0..self.black.len() {
+            let (r, c) = self.black[k];
+            let i = self.idx(r, c);
+            self.hash ^= self.zobrist[i][0];
+        }
+        for k in 0..self.white.len() {
+            let (r, c) = self.white[k];
+            let i = self.idx(r, c);
+            self.hash ^= self.zobrist[i][1];
+        }
+    }
+
+    /// 把所有「穿过 `(r,c)` 且整窗在界内」的 5-窗口贡献，按 `sign` 累加进 score。
+    fn score_windows(&mut self, r: i32, c: i32, sign: i32) {
+        for (dr, dc) in DIRS {
+            for o in 0..5 {
+                let (sr, sc) = (r - dr * o, c - dc * o);
+                if self.in_bounds(sr, sc) && self.in_bounds(sr + dr * 4, sc + dc * 4) {
+                    let (b, w) = self.window_contrib(sr, sc, dr, dc);
+                    self.score_black += sign * b;
+                    self.score_white += sign * w;
+                }
+            }
+        }
+    }
+
+    /// 单个 5-窗口（起点 `(sr,sc)`、方向 `(dr,dc)`，调用方保证整窗在界内）对黑 / 白的贡献。
+    /// 仅含单色 + 空的窗口才计分；混色窗口为 0。
+    fn window_contrib(&self, sr: i32, sc: i32, dr: i32, dc: i32) -> (i32, i32) {
+        let (mut b, mut w) = (0_usize, 0_usize);
+        for k in 0..5 {
+            match self.code(sr + dr * k, sc + dc * k) {
+                BLACK => b += 1,
+                WHITE => w += 1,
+                _ => {}
+            }
+        }
+        if w == 0 && b > 0 {
+            (WINDOW_WEIGHT[b], 0)
+        } else if b == 0 && w > 0 {
+            (0, WINDOW_WEIGHT[w])
+        } else {
+            (0, 0)
         }
     }
 
