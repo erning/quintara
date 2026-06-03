@@ -20,6 +20,7 @@
 mod eval;
 mod grid;
 mod search;
+mod vct;
 
 use std::time::{Duration, Instant};
 
@@ -39,6 +40,11 @@ const SAFETY_MARGIN_MS: u64 = 150;
 const DEFENSE_NUM: u32 = 55;
 /// VCF 进攻搜索占总预算的比例上限。
 const VCF_NUM: u32 = 35;
+/// VCT 进攻搜索占总预算的比例上限（在 VCF 之后尝试）。很小：VCT 只为快速逮到强制胜，
+/// 多数局面找不到，须把时间留给做防守的 α-β。
+const VCT_NUM: u32 = 12;
+/// VCT 根搜索的节点上限（很紧，避免非胜局面空耗）。
+const VCT_NODE_CAP: u64 = 12_000;
 /// 防守时单个候选的 VCF 否证时间上限。
 const PER_DEFENSE_CHECK: Duration = Duration::from_millis(15);
 /// 进入 α-β 的根候选数上限。
@@ -118,7 +124,16 @@ impl MoveSource for OnyxBot {
 
         // 3) 自己的 VCF 强制胜。
         let vcf_deadline = (start + scale(budget, VCF_NUM)).min(deadline);
-        if let Some((r, c)) = search::vcf_win_move(&mut grid, me, win, stop, vcf_deadline) {
+        if let Some((r, c)) = search::vcf_win_move(&mut grid, me, win, stop, vcf_deadline, u64::MAX)
+        {
+            return place(r, c);
+        }
+
+        // 3b) 自己的 VCT 强制胜（含活三连续威胁，VCF 找不到的双活三 / 四三链）。
+        let threat_deadline = (start + scale(budget, VCT_NUM)).min(deadline);
+        if let Some((r, c)) =
+            vct::vct_win_move(&mut grid, me, win, stop, threat_deadline, VCT_NODE_CAP)
+        {
             return place(r, c);
         }
 
@@ -145,7 +160,7 @@ impl MoveSource for OnyxBot {
             grid.place(r, c, me);
             let loses = grid.has_immediate_win(opp, win) || {
                 let check = (Instant::now() + PER_DEFENSE_CHECK).min(defense_deadline);
-                search::has_vcf(&mut grid, opp, win, stop, check)
+                search::has_vcf(&mut grid, opp, win, stop, check, u64::MAX)
             };
             grid.unplace(r, c, me);
             if !loses {
@@ -194,7 +209,7 @@ mod tests {
     use quintara_model::{Board, Cell, Color, Move, Position, RuleSet, TurnContext};
 
     use crate::grid::{Grid, Win, BLACK, WHITE};
-    use crate::{search, OnyxBot};
+    use crate::{search, vct, OnyxBot};
 
     fn board_with(black: &[(u8, u8)], white: &[(u8, u8)]) -> Board {
         let mut board = Board::square(15);
@@ -258,7 +273,14 @@ mod tests {
         let board = board_with(&[(7, 5), (7, 6), (7, 7), (5, 8), (6, 8)], &[(7, 4)]);
         let mut grid = Grid::from_board(&board);
         let deadline = Instant::now() + Duration::from_secs(5);
-        let mv = search::vcf_win_move(&mut grid, BLACK, Win::Overline, &StopFlag::new(), deadline);
+        let mv = search::vcf_win_move(
+            &mut grid,
+            BLACK,
+            Win::Overline,
+            &StopFlag::new(),
+            deadline,
+            u64::MAX,
+        );
         assert_eq!(mv, Some((7, 8)), "expected VCF to start with (7,8)");
     }
 
@@ -294,6 +316,44 @@ mod tests {
             (e0, h0),
             "round-trip drift"
         );
+    }
+
+    #[test]
+    fn vct_finds_double_three() {
+        // 黑两条「活二」交于 (7,8)：落 (7,8) 即成横、竖两条活三 → 双活三强制胜。
+        let board = board_with(&[(7, 6), (7, 7), (5, 8), (6, 8)], &[]);
+        let mut grid = Grid::from_board(&board);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mv = vct::vct_win_move(
+            &mut grid,
+            BLACK,
+            Win::Overline,
+            &StopFlag::new(),
+            deadline,
+            1_000_000,
+        );
+        assert_eq!(
+            mv,
+            Some((7, 8)),
+            "expected VCT to find the double-three at (7,8)"
+        );
+    }
+
+    #[test]
+    fn vct_rejects_non_forcing_open_two() {
+        // 仅一条活二（黑先）：能做单活三，但单活三可被招架 → 非强制胜，不得误报。
+        let board = board_with(&[(7, 7), (7, 8)], &[]);
+        let mut grid = Grid::from_board(&board);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mv = vct::vct_win_move(
+            &mut grid,
+            BLACK,
+            Win::Overline,
+            &StopFlag::new(),
+            deadline,
+            1_000_000,
+        );
+        assert_eq!(mv, None, "VCT must not claim a win from a single open two");
     }
 
     #[test]

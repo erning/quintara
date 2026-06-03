@@ -302,6 +302,34 @@ impl Grid {
         count
     }
 
+    /// `(r,c)` 处已是 `color` 的子时，该子是否构成「威胁」（冲四或活三）——廉价 4 向扫描，
+    /// 供搜索的「强制手」门控用（只在威胁手后的叶子做 VCF 静态延伸）。
+    #[must_use]
+    pub fn creates_threat(&self, r: i32, c: i32, color: u8) -> bool {
+        for (dr, dc) in DIRS {
+            let mut fwd = 0;
+            let mut k = 1;
+            while self.code(r + dr * k, c + dc * k) == color {
+                fwd += 1;
+                k += 1;
+            }
+            let fwd_open = self.code(r + dr * k, c + dc * k) == EMPTY;
+            let mut bwd = 0;
+            let mut k = 1;
+            while self.code(r - dr * k, c - dc * k) == color {
+                bwd += 1;
+                k += 1;
+            }
+            let bwd_open = self.code(r - dr * k, c - dc * k) == EMPTY;
+            let run = fwd + bwd + 1;
+            let opens = i32::from(fwd_open) + i32::from(bwd_open);
+            if run >= 4 && opens >= 1 || run == 3 && opens == 2 {
+                return true;
+            }
+        }
+        false
+    }
+
     /// 在空点 `(r,c)` 落 `color` 是否立即成胜。无需真正落子。
     #[must_use]
     pub fn would_win(&self, r: i32, c: i32, color: u8, win: Win) -> bool {

@@ -20,6 +20,8 @@ pub const MATE: i32 = WIN - 10_000;
 const TOP_K: usize = 16;
 /// VCF 最大进攻层数（仍以时间为先约束）。
 const VCF_MAX_DEPTH: i32 = 40;
+/// 叶子 VCF 静态延伸的单次节点上限（仅在「强制手」之后的叶子触发，控开销）。
+const QUIESCENCE_VCF_NODES: u64 = 800;
 /// negamax 多久检查一次时钟（节点数）。
 const TIME_CHECK_MASK: u64 = 255;
 /// 区分行棋方的 Zobrist 侧键（白方时 xor 进探查键）。
@@ -61,15 +63,17 @@ struct Vcf<'a> {
     stop: &'a StopFlag,
     deadline: Instant,
     nodes: u64,
+    /// 节点上限：根搜索传 `u64::MAX`，叶子静态延伸传小值以控开销。
+    node_cap: u64,
     aborted: bool,
 }
 
 impl Vcf<'_> {
     fn out_of_time(&mut self) -> bool {
         self.nodes += 1;
-        if self.nodes & VCF_TIME_MASK == 0
-            && (Instant::now() >= self.deadline || self.stop.should_stop())
-        {
+        let timed = self.nodes & VCF_TIME_MASK == 0
+            && (Instant::now() >= self.deadline || self.stop.should_stop());
+        if self.nodes > self.node_cap || timed {
             self.aborted = true;
         }
         self.aborted
@@ -129,6 +133,7 @@ pub fn vcf_win_move(
     win: Win,
     stop: &StopFlag,
     deadline: Instant,
+    node_cap: u64,
 ) -> Option<(i32, i32)> {
     let def = other(atk);
     let mut vcf = Vcf {
@@ -136,6 +141,7 @@ pub fn vcf_win_move(
         stop,
         deadline,
         nodes: 0,
+        node_cap,
         aborted: false,
     };
     let mut moves = grid.four_moves(atk, win);
@@ -168,10 +174,17 @@ pub fn vcf_win_move(
     None
 }
 
-/// `atk` 是否存在 VCF 强制胜（用于防守过滤）。
+/// `atk` 是否存在 VCF 强制胜（用于防守过滤 / 叶子静态延伸）。
 #[must_use]
-pub fn has_vcf(grid: &mut Grid, atk: u8, win: Win, stop: &StopFlag, deadline: Instant) -> bool {
-    vcf_win_move(grid, atk, win, stop, deadline).is_some()
+pub fn has_vcf(
+    grid: &mut Grid,
+    atk: u8,
+    win: Win,
+    stop: &StopFlag,
+    deadline: Instant,
+    node_cap: u64,
+) -> bool {
+    vcf_win_move(grid, atk, win, stop, deadline, node_cap).is_some()
 }
 
 /// negamax + α-β 搜索器。
@@ -207,6 +220,9 @@ impl Searcher<'_> {
         }
     }
 
+    // NOTE: 标准 negamax 的参数列表（盘面 / 行棋方 / 深度 / α / β / ply / 强制手标记）天然较长，
+    // 拆成 struct 反而更晦涩；此处局部豁免 too_many_arguments。
+    #[allow(clippy::too_many_arguments)]
     fn negamax(
         &mut self,
         grid: &mut Grid,
@@ -215,11 +231,26 @@ impl Searcher<'_> {
         mut alpha: i32,
         mut beta: i32,
         ply: i32,
+        forcing: bool,
     ) -> i32 {
         if self.out_of_time() {
             return 0;
         }
         if depth == 0 {
+            // 强制手后的叶子做 VCF 静态延伸：行棋方若有连续四杀（sound），视为必胜叶子，
+            // 让 α-β 看穿静态地平线外的强制胜 / 负。只在「强制手」后触发以控开销。
+            if forcing
+                && has_vcf(
+                    grid,
+                    side,
+                    self.win,
+                    self.stop,
+                    self.deadline,
+                    QUIESCENCE_VCF_NODES,
+                )
+            {
+                return WIN - ply;
+            }
             return evaluate(grid, side, self.win);
         }
 
@@ -275,7 +306,8 @@ impl Searcher<'_> {
                 WIN - ply
             } else {
                 grid.make(r, c, side);
-                let v = -self.negamax(grid, opp, depth - 1, -beta, -alpha, ply + 1);
+                let child_forcing = grid.creates_threat(r, c, side);
+                let v = -self.negamax(grid, opp, depth - 1, -beta, -alpha, ply + 1, child_forcing);
                 grid.unmake(r, c, side);
                 v
             };
@@ -358,7 +390,8 @@ pub fn search_best(
                 WIN
             } else {
                 grid.make(r, c, me);
-                let v = -searcher.negamax(grid, opp, depth - 1, -beta, -alpha, 1);
+                let child_forcing = grid.creates_threat(r, c, me);
+                let v = -searcher.negamax(grid, opp, depth - 1, -beta, -alpha, 1, child_forcing);
                 grid.unmake(r, c, me);
                 v
             };
