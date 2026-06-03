@@ -22,8 +22,9 @@ const TOP_K: usize = 16;
 const VCF_MAX_DEPTH: i32 = 40;
 /// 叶子 VCF 静态延伸的单次节点上限（仅在「强制手」之后的叶子触发，控开销）。
 const QUIESCENCE_VCF_NODES: u64 = 800;
-/// negamax 多久检查一次时钟（节点数）。
-const TIME_CHECK_MASK: u64 = 255;
+/// negamax 多久检查一次时钟（节点数）。迭代加深每层都把 `nodes` 清零，故除周期检查外，
+/// 每层第 1 个节点也强制读钟（见 [`Searcher::out_of_time`]）：否则新层要先白跑这么多节点才发现超时。
+const TIME_CHECK_MASK: u64 = 63;
 /// 区分行棋方的 Zobrist 侧键（白方时 xor 进探查键）。
 const SIDE_KEY: u64 = 0x9E37_79B9_7F4A_7C15;
 
@@ -71,7 +72,10 @@ struct Vcf<'a> {
 impl Vcf<'_> {
     fn out_of_time(&mut self) -> bool {
         self.nodes += 1;
-        let timed = self.nodes & VCF_TIME_MASK == 0
+        // node 1 也读钟：叶子静态延伸 / 防守否证为每个候选新建一个 Vcf（nodes 从 0 起）。若全局
+        // deadline 已过，必须在第 1 个节点就中止，否则每次都先白跑 ~VCF_TIME_MASK 个「重」节点
+        // （four_moves→嵌套邻域扫描），在 α-β 叶子处成百上千次累积，造成可观的超时溢出。
+        let timed = (self.nodes == 1 || self.nodes & VCF_TIME_MASK == 0)
             && (Instant::now() >= self.deadline || self.stop.should_stop());
         if self.nodes > self.node_cap || timed {
             self.aborted = true;
@@ -203,7 +207,9 @@ struct Searcher<'a> {
 impl Searcher<'_> {
     fn out_of_time(&mut self) -> bool {
         self.nodes += 1;
-        if self.nodes & TIME_CHECK_MASK == 0
+        // node 1 也读钟：迭代加深每层把 nodes 清零，否则新层要先跑满一个掩码周期才发现 deadline
+        // 已过——一个昂贵的深层会无谓地先跑数十个节点。第 1 个节点即检查可整体掐掉这种新层溢出。
+        if (self.nodes == 1 || self.nodes & TIME_CHECK_MASK == 0)
             && (Instant::now() >= self.deadline || self.stop.should_stop())
         {
             self.aborted = true;
@@ -277,27 +283,7 @@ impl Searcher<'_> {
         if raw.is_empty() {
             return evaluate(grid, side, self.win);
         }
-        let mut cands = raw;
-        cands.sort_by_key(|&(r, c)| std::cmp::Reverse(order_key(grid, r, c, side, opp)));
-        // 排序后把首选着（置换表着 + 两个杀手着）提到最前——在截断前，确保不被裁掉。
-        let killers = self
-            .killers
-            .get(ply as usize)
-            .copied()
-            .unwrap_or([None, None]);
-        let priorities = [tt_move, killers[0], killers[1]];
-        let mut ordered: Vec<(i32, i32)> = Vec::with_capacity(cands.len());
-        for &p in priorities.iter().flatten() {
-            if cands.contains(&p) && !ordered.contains(&p) {
-                ordered.push(p);
-            }
-        }
-        for &m in &cands {
-            if !ordered.contains(&m) {
-                ordered.push(m);
-            }
-        }
-        ordered.truncate(TOP_K);
+        let ordered = self.order_moves(grid, raw, side, opp, ply, tt_move);
 
         let mut best = -WIN;
         let mut best_move = None;
@@ -344,6 +330,39 @@ impl Searcher<'_> {
             },
         );
         best
+    }
+
+    /// 着法排序：候选按启发分降序，再把首选着（置换表着 + 两个杀手着）提到最前——在截断到
+    /// `TOP_K` 之前确保不被裁掉。返回排好序、已截断的着法表。
+    fn order_moves(
+        &self,
+        grid: &Grid,
+        mut cands: Vec<(i32, i32)>,
+        side: u8,
+        opp: u8,
+        ply: i32,
+        tt_move: Option<(i32, i32)>,
+    ) -> Vec<(i32, i32)> {
+        cands.sort_by_key(|&(r, c)| std::cmp::Reverse(order_key(grid, r, c, side, opp)));
+        let killers = self
+            .killers
+            .get(ply as usize)
+            .copied()
+            .unwrap_or([None, None]);
+        let priorities = [tt_move, killers[0], killers[1]];
+        let mut ordered: Vec<(i32, i32)> = Vec::with_capacity(cands.len());
+        for &p in priorities.iter().flatten() {
+            if cands.contains(&p) && !ordered.contains(&p) {
+                ordered.push(p);
+            }
+        }
+        for &m in &cands {
+            if !ordered.contains(&m) {
+                ordered.push(m);
+            }
+        }
+        ordered.truncate(TOP_K);
+        ordered
     }
 }
 

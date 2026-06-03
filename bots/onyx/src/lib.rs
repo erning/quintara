@@ -31,11 +31,9 @@ use grid::{code_of, Grid, Win};
 
 /// 每手默认思考预算（协议与命令行都未给出时）。
 const DEFAULT_BUDGET: Duration = Duration::from_secs(1);
-/// 安全系数：实际只用预算的这个比例，给 stdio / 调度留余量，避免超时判负。
-const SAFETY_NUM: u32 = 75;
-const SAFETY_DEN: u32 = 100;
-/// 额外的绝对安全余量：无论比例如何，至少给协议往返 + 搜索溢出留这么多毫秒。
-const SAFETY_MARGIN_MS: u64 = 150;
+/// 固定安全余量（ms）：给协议 stdio 往返 + 搜索单节点溢出预留。搜索各阶段已严守自身 deadline，
+/// 故只需小余量;arbiter 的 timeout tolerance 才是真正的安全网，无需再按比例自废思考时间。
+const SAFETY_MARGIN_MS: u64 = 40;
 /// 防守过滤占总预算的比例上限。
 const DEFENSE_NUM: u32 = 55;
 /// VCF 进攻搜索占总预算的比例上限。
@@ -71,7 +69,7 @@ impl OnyxBot {
         self
     }
 
-    /// 本手的有效计算时长：min(命令行, 协议 `timeout_turn`) × 安全系数。
+    /// 本手的有效计算时长：min(命令行, 协议 `timeout_turn`) 扣掉固定 stdio 安全余量。
     fn effective_budget(&self, ctx: &TurnContext) -> Duration {
         let base = match (self.budget, ctx.timeout_turn) {
             (Some(a), Some(b)) => a.min(b),
@@ -80,10 +78,8 @@ impl OnyxBot {
             (None, None) => DEFAULT_BUDGET,
         };
         let ms = u64::try_from(base.as_millis()).unwrap_or(u64::MAX);
-        let scaled = ms.saturating_mul(u64::from(SAFETY_NUM)) / u64::from(SAFETY_DEN);
-        // 同时受比例与绝对余量约束，取更紧者；下限 20ms 防止极小预算下卡死。
-        let bounded = scaled.min(ms.saturating_sub(SAFETY_MARGIN_MS));
-        Duration::from_millis(bounded.max(20))
+        // 只扣固定 stdio 余量；下限 20ms 防止极小预算下卡死。
+        Duration::from_millis(ms.saturating_sub(SAFETY_MARGIN_MS).max(20))
     }
 }
 

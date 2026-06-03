@@ -19,8 +19,9 @@ use crate::grid::{Grid, Win, BLACK, WHITE};
 
 /// VCT 最大进攻层数（每层 = 进攻一手 + 防守回应）。
 const VCT_MAX_DEPTH: i32 = 9;
-/// 多久检查一次时钟（节点数）。
-const TIME_MASK: u64 = 31;
+/// 多久检查一次时钟（节点数）。VCT 的单节点极重（每个 `attack` 跑一遍 `threat_moves` 全邻域
+/// 扫描 + 反复 `win_points` / `four_moves`），故取很密的间隔；读钟开销相对节点成本可忽略。
+const TIME_MASK: u64 = 7;
 
 struct Vct<'a> {
     win: Win,
@@ -34,7 +35,9 @@ struct Vct<'a> {
 impl Vct<'_> {
     fn out_of_budget(&mut self) -> bool {
         self.nodes += 1;
-        let timed = self.nodes & TIME_MASK == 0
+        // node 1 也读钟：VCT 在根每手新建一次，且常在前序阶段（VCF）已耗到其 deadline 之后才进入；
+        // 不在第 1 个节点检查就会先白跑一个掩码周期的「重」节点，造成可观溢出。
+        let timed = (self.nodes == 1 || self.nodes & TIME_MASK == 0)
             && (Instant::now() >= self.deadline || self.stop.should_stop());
         if self.nodes > self.node_cap || timed {
             self.aborted = true;
