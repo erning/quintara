@@ -4,7 +4,6 @@
 //!   胜。声明胜时不假设对手配合——对手要么挡唯一成五点、要么自己已能成五（此时该线失败）。
 //! - [`search_best`]：安静局面的兜底，negamax + α-β + 迭代加深，受 `deadline` / `stop` 约束。
 
-use std::collections::HashMap;
 use std::time::Instant;
 
 use quintara_bot::StopFlag;
@@ -36,13 +35,49 @@ enum Bound {
     Upper,
 }
 
-/// 置换表条目。
+/// 置换表条目。`key` 是完整 Zobrist 键，用于在定长表里校验槽位归属（避免索引截断带来的伪命中）。
 #[derive(Clone, Copy)]
 struct TtEntry {
+    key: u64,
     depth: i32,
     value: i32,
     bound: Bound,
     best: Option<(i32, i32)>,
+}
+
+/// 置换表索引位数：定长直接映射数组，`2^TT_BITS` 个槽位（每手新建一次，约 20MB）。
+const TT_BITS: u32 = 19;
+
+/// 定长直接映射置换表。键已是高质量 Zobrist 哈希，故直接 `key & mask` 索引、整键校验、冲突即覆盖——
+/// 省掉 `HashMap` 的 `SipHash` 重哈希与扩容 rehash（搜索热路径上每节点都 probe / store）。
+struct Tt {
+    slots: Vec<Option<TtEntry>>,
+    mask: usize,
+}
+
+impl Tt {
+    fn new() -> Self {
+        let size = 1usize << TT_BITS;
+        Self {
+            slots: vec![None; size],
+            mask: size - 1,
+        }
+    }
+
+    /// 整键校验的探查：槽位为空或键不符都视为未命中。
+    #[inline]
+    fn probe(&self, key: u64) -> Option<&TtEntry> {
+        match &self.slots[key as usize & self.mask] {
+            Some(e) if e.key == key => Some(e),
+            _ => None,
+        }
+    }
+
+    /// 写入（always-replace：冲突直接覆盖旧槽）。
+    #[inline]
+    fn store(&mut self, entry: TtEntry) {
+        self.slots[entry.key as usize & self.mask] = Some(entry);
+    }
 }
 
 /// 行棋方对应的探查键偏移。
@@ -54,7 +89,7 @@ fn side_key(side: u8) -> u64 {
         SIDE_KEY
     }
 }
-/// VCF 多久检查一次时钟。VCF 单节点很「重」（`four_moves` → 嵌套 `count_win_points` 邻域扫描），
+/// VCF 多久检查一次时钟。VCF 单节点很「重」（`four_moves` → 嵌套成五点扫描），
 /// 故取远更密的间隔，把超时溢出从约 100ms 压到约 10ms。
 const VCF_TIME_MASK: u64 = 31;
 
@@ -139,6 +174,11 @@ pub fn vcf_win_move(
     deadline: Instant,
     node_cap: u64,
 ) -> Option<(i32, i32)> {
+    // 进攻方若已有立即成五点，本身即强制胜，直接返回。这也保证了下方 `four_moves` 的调用前提
+    // （进攻方落子前无成五点），使其内部「只数穿过落点的新成五点」的局部统计严格等价于全盘统计。
+    if let Some(&p) = grid.win_points(atk, win).first() {
+        return Some(p);
+    }
     let def = other(atk);
     let mut vcf = Vcf {
         win,
@@ -199,7 +239,7 @@ struct Searcher<'a> {
     nodes: u64,
     aborted: bool,
     /// 置换表：跨迭代加深各层共享，命中即剪枝 / 提着。
-    tt: HashMap<u64, TtEntry>,
+    tt: Tt,
     /// 杀手着：每层最近两个引发 β 截断的着，用于同层兄弟节点的着法排序。
     killers: Vec<[Option<(i32, i32)>; 2]>,
 }
@@ -264,7 +304,7 @@ impl Searcher<'_> {
         let key = grid.hash() ^ side_key(side);
         let alpha_orig = alpha;
         let mut tt_move = None;
-        if let Some(entry) = self.tt.get(&key).copied() {
+        if let Some(entry) = self.tt.probe(key).copied() {
             tt_move = entry.best;
             if entry.depth >= depth {
                 match entry.bound {
@@ -320,15 +360,13 @@ impl Searcher<'_> {
         } else {
             Bound::Exact
         };
-        self.tt.insert(
+        self.tt.store(TtEntry {
             key,
-            TtEntry {
-                depth,
-                value: best,
-                bound,
-                best: best_move,
-            },
-        );
+            depth,
+            value: best,
+            bound,
+            best: best_move,
+        });
         best
     }
 
@@ -391,7 +429,7 @@ pub fn search_best(
         deadline,
         nodes: 0,
         aborted: false,
-        tt: HashMap::new(),
+        tt: Tt::new(),
         killers: vec![[None, None]; (max_depth as usize) + 2],
     };
 

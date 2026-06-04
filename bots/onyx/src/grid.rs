@@ -379,7 +379,7 @@ impl Grid {
                 continue; // 立即胜，另行处理
             }
             self.place(r, c, color);
-            let wins = self.count_win_points(color, win);
+            let wins = self.new_win_points_through(r, c, color, win);
             self.unplace(r, c, color);
             if wins >= 1 {
                 out.push(((r, c), wins));
@@ -388,13 +388,19 @@ impl Grid {
         out
     }
 
-    /// `color` 成五点的个数（去重按点）。
-    #[must_use]
-    pub fn count_win_points(&mut self, color: u8, win: Win) -> u32 {
+    /// 在 `(r,c)` 落 `color` 后**因该子而新增**的成五点个数。新成五点必与 `(r,c)` 同处一条 5-窗口
+    /// （否则在落子前就已是成五点 → `color` 早已立即胜，与 `four_moves` 的调用前提矛盾），故只需沿
+    /// 4 个方向各扫 ±1..=4 的空点即可，无需重扫全盘邻域（这是热路径的关键剪裁）。
+    fn new_win_points_through(&self, r: i32, c: i32, color: u8, win: Win) -> u32 {
         let mut n = 0;
-        for (r, c) in self.neighborhood_of(color, 2) {
-            if self.would_win(r, c, color, win) {
-                n += 1;
+        for (dr, dc) in DIRS {
+            for k in 1..=4 {
+                for sign in [1, -1] {
+                    let (pr, pc) = (r + dr * k * sign, c + dc * k * sign);
+                    if self.code(pr, pc) == EMPTY && self.would_win(pr, pc, color, win) {
+                        n += 1;
+                    }
+                }
             }
         }
         n
