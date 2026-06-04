@@ -166,6 +166,20 @@ fn open_four_moves(g: &mut Grid, color: u8, win: Win) -> Vec<(i32, i32)> {
         .collect()
 }
 
+/// `atk` 是否存在 VCT 强制胜（防守过滤用：判断某候选是否仍让对手有威胁序列杀）。受 `node_cap`
+/// / `deadline` 约束；超时 / 超结点即视为「未找到」（保守：宁可漏判威胁也不误杀安全着）。
+#[must_use]
+pub fn has_vct(
+    g: &mut Grid,
+    atk: u8,
+    win: Win,
+    stop: &StopFlag,
+    deadline: Instant,
+    node_cap: u64,
+) -> bool {
+    vct_win_move(g, atk, win, stop, deadline, node_cap).is_some()
+}
+
 /// 找 `atk` 的一步 VCT 制胜着；无则 `None`。受 `node_cap` / `deadline` 约束。
 #[must_use]
 pub fn vct_win_move(

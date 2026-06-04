@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use quintara_bot::{MoveSource, StopFlag};
 use quintara_model::{Move, Position, TurnContext};
 
-use grid::{code_of, Grid, Win};
+use grid::{code_of, Grid, Win, WHITE};
 
 /// 每手默认思考预算（协议与命令行都未给出时）。
 const DEFAULT_BUDGET: Duration = Duration::from_secs(1);
@@ -45,6 +45,10 @@ const VCT_NUM: u32 = 12;
 const VCT_NODE_CAP: u64 = 12_000;
 /// 防守时单个候选的 VCF 否证时间上限。
 const PER_DEFENSE_CHECK: Duration = Duration::from_millis(15);
+/// 后手(白)防守时单个候选的对手 VCT 否证时间上限（比 VCF 重，给得稍紧、靠结点上限兜底）。
+const PER_DEFENSE_VCT: Duration = Duration::from_millis(10);
+/// 后手(白)防守时单个候选的对手 VCT 否证结点上限（快速「有无威胁序列杀」探查，非穷尽）。
+const PER_DEFENSE_VCT_NODES: u64 = 2_000;
 /// 进入 α-β 的根候选数上限。
 const MAX_ROOTS: usize = 24;
 /// α-β 迭代加深的层数上限（仍以时间为先约束）。
@@ -145,7 +149,10 @@ impl MoveSource for OnyxBot {
         roots.sort_by_key(|&(r, c)| std::cmp::Reverse(eval::order_key(&grid, r, c, me, opp)));
         roots.truncate(MAX_ROOTS);
 
-        // 4) 防守过滤：剔除走完后让对手立即胜 / VCF 杀的着。
+        // 4) 防守过滤：剔除走完后让对手立即胜 / VCF 杀的着。后手(白)无先手权、防守优先，额外也
+        //    剔除「让对手仍能 VCT(威胁序列杀)」的着——白棋弱在防守晚一手，这里早一步拦威胁序列。
+        //    `vct_win_move` 是 sound 的(应手取完备超集)，故只会剔除真有强制胜的着、不误杀安全着。
+        let defending = me == WHITE;
         let defense_deadline = (start + scale(budget, DEFENSE_NUM)).min(deadline);
         let mut safe = Vec::new();
         for &(r, c) in &roots {
@@ -154,10 +161,15 @@ impl MoveSource for OnyxBot {
                 continue;
             }
             grid.place(r, c, me);
-            let loses = grid.has_immediate_win(opp, win) || {
-                let check = (Instant::now() + PER_DEFENSE_CHECK).min(defense_deadline);
-                search::has_vcf(&mut grid, opp, win, stop, check, u64::MAX)
-            };
+            let loses = grid.has_immediate_win(opp, win)
+                || {
+                    let check = (Instant::now() + PER_DEFENSE_CHECK).min(defense_deadline);
+                    search::has_vcf(&mut grid, opp, win, stop, check, u64::MAX)
+                }
+                || (defending && {
+                    let check = (Instant::now() + PER_DEFENSE_VCT).min(defense_deadline);
+                    vct::has_vct(&mut grid, opp, win, stop, check, PER_DEFENSE_VCT_NODES)
+                });
             grid.unplace(r, c, me);
             if !loses {
                 safe.push((r, c));
