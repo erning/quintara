@@ -132,14 +132,15 @@ impl Grid {
         (r * self.w + c) as usize
     }
 
-    /// 该点编码；越界返回 [`OFF`]。
+    /// 该点编码；越界返回 [`OFF`]。热路径最内层：用无符号转换做单比较边界判断——负坐标转 `u32`
+    /// 会变成巨大值而自然落在上界之外，等价于「`0 <= r < h`」但每维只需一次比较。
     #[inline]
     #[must_use]
     pub fn code(&self, r: i32, c: i32) -> u8 {
-        if !(0..self.h).contains(&r) || !(0..self.w).contains(&c) {
-            OFF
-        } else {
+        if (r as u32) < self.h as u32 && (c as u32) < self.w as u32 {
             self.cells[self.idx(r, c)]
+        } else {
+            OFF
         }
     }
 

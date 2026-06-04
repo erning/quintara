@@ -394,8 +394,11 @@ impl Searcher<'_> {
                 ordered.push(p);
             }
         }
+        // 候选集本身已去重（邻域 stamp 去重），故第二轮只需排除已置顶的 ≤3 个优先着——
+        // 对该前缀判断即可，避免在随 push 增长的 `ordered` 上做 O(n²) 线性查找。
+        let n_pri = ordered.len();
         for &m in &cands {
-            if !ordered.contains(&m) {
+            if !ordered[..n_pri].contains(&m) {
                 ordered.push(m);
             }
         }
