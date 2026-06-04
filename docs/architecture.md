@@ -1,6 +1,6 @@
 # 架构设计
 
-本文档定义 **quintara** 的架构。规则与标准见 [`rules/`](./rules/)，协议见 [`protocol/`](./protocol/)，技术栈见 [`tech-stack.md`](./tech-stack.md)，实施计划见 [`roadmap.md`](./roadmap.md)。功能上参考的桌面管理器见 [`piskvork.md`](./piskvork.md)。
+本文档定义 **quintara** 的架构。规则与标准见 [`rules/`](./rules/)，协议见 [`protocol/`](./protocol/)，技术栈见 [`tech-stack.md`](./tech-stack.md)，实施计划见 [`roadmap.md`](./roadmap.md)，各机器人定位与强弱见 [`bots.md`](./bots.md)。功能上参考的桌面管理器见 [`piskvork.md`](./piskvork.md)。
 
 ## 0. 目标
 
