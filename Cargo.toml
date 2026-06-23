@@ -8,7 +8,10 @@ members = [
     "crates/quintara-record",
     "crates/quintara-protocol",
     "crates/quintara-bot",
+    "crates/quintara-rapfi",
     "crates/quintara-arbiter",
+    "crates/quintara-mobile",
+    "crates/quintara-android-jni",
     # 我的 bot
     "bots/random",
     "bots/greedy",
@@ -23,7 +26,7 @@ members = [
 [workspace.package]
 version      = "0.0.1"
 edition      = "2021"
-rust-version = "1.95"
+rust-version = "1.96"
 
 [workspace.dependencies]
 # 组件 crate
@@ -33,7 +36,10 @@ quintara-opening = { path = "crates/quintara-opening" }
 quintara-record  = { path = "crates/quintara-record" }
 quintara-protocol = { path = "crates/quintara-protocol" }
 quintara-bot     = { path = "crates/quintara-bot" }
+quintara-rapfi   = { path = "crates/quintara-rapfi" }
 quintara-arbiter = { path = "crates/quintara-arbiter" }
+quintara-mobile  = { path = "crates/quintara-mobile" }
+quintara-android-jni = { path = "crates/quintara-android-jni" }
 
 # bot 实现
 quintara-bot-random = { path = "bots/random" }
@@ -50,6 +56,7 @@ rand       = "0.8"
 thiserror  = "1"
 clap       = { version = "4", features = ["derive"] }
 ratatui    = "0.29"
+jni        = "0.21"
 
 [workspace.lints.rust]
 unsafe_code     = "forbid"

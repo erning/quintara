@@ -1,0 +1,21 @@
+[package]
+name = "quintara-rapfi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+quintara-bot = { workspace = true }
+quintara-model = { workspace = true }
+
+[lints.rust]
+unsafe_code = "allow"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+todo = "warn"
+dbg_macro = "warn"
+unwrap_used = "warn"
+expect_used = "warn"

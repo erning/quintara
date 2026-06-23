@@ -1,0 +1,21 @@
+[package]
+name = "quintara-mobile"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+quintara-arbiter = { workspace = true }
+quintara-bot = { workspace = true }
+quintara-bot-onyx = { workspace = true }
+quintara-bot-sage = { workspace = true }
+quintara-bot-titan = { workspace = true }
+quintara-model = { workspace = true }
+quintara-rapfi = { workspace = true }
+quintara-record = { workspace = true }
+quintara-rules = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

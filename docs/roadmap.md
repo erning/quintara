@@ -2,7 +2,7 @@
 
 本计划面向「能在终端下棋、能调试自己 bot」的五子棋管理器，**CLI 先行**。架构见 [`architecture.md`](./architecture.md)，技术栈见 [`tech-stack.md`](./tech-stack.md)，规则见 [`rules/`](./rules/)，协议见 [`protocol/`](./protocol/)，参考应用见 [`piskvork.md`](./piskvork.md)。
 
-主线：**先做能在终端下棋、能调试自己 bot 的单局管理器（已完成）；接着做交互式 TUI 把手感做顺；初步可玩后做一个稍像样的内置 bot；再深化规则 / 协议（swap2、连珠开局、完整 INFO）；最后经 FFI 由 Swift 做全功能 GUI**。一步步来。
+主线：**先做能在终端下棋、能调试自己 bot 的单局管理器（已完成）；接着做交互式 TUI 把手感做顺；初步可玩后做一个稍像样的内置 bot；再深化规则 / 协议（swap2、连珠开局、完整 INFO）；现在启动 Android Phone 应用，经移动端 facade 复用同一引擎；之后再补通用 FFI / Swift GUI**。一步步来。
 
 > 顺序经调整：TUI 提前；TUI 初步可玩后先升级内置 bot，再补规则 / 协议深度（swap 等更靠后）。生态互通、ZIP bot、arena 锦标赛对当前「学规则与协议」的目标价值低，**冻结**，需要时解冻。
 
@@ -11,8 +11,9 @@ P1  终端单局管理器（含外部 pbrain）   ✅ 完成
 P2  TUI（交互式棋盘）                ✅ 完成（阶段 1–8）
 P3  内置 bot 升级（minimax / 威胁搜索）  ✅ sage + titan A–D + 参数化；titan 冻结，aegis 新骨架在建
 P4  规则 / 协议深化（swap2 / Pro / 连珠开局 / 完整 INFO）  ← 下一步
-P5  FFI 库边界（给 Swift GUI）
-P6  Swift 全功能 GUI（独立项目，消费引擎）
+P5  Android Phone 应用（Compose + Rust mobile facade + Rapfi native library）  ← 在建
+P6  FFI 库边界（给 Swift GUI）
+P7  Swift 全功能 GUI（独立项目，消费引擎）
 ~   冻结：生态互通验证 / ZIP bot / arena 锦标赛（需要时解冻）
 ```
 
@@ -93,12 +94,21 @@ P6  Swift 全功能 GUI（独立项目，消费引擎）
 - **bot 调试子命令**：喂局面、单步、看 `evaluate`、跑指定开局集。
 - **批量统计（续）**：`--games` 已有多局 + 交换先后手 + 系列比分；补更细聚合（超时次数 / 平均手数 / 用时）。
 
-## P5 — FFI 库边界（给 Swift）
+## P5 — Android Phone 应用（在建）
+
+- `apps/quintara-android`：Kotlin + Jetpack Compose，按 `docs/ui-design/android-gui.pdf` 的 Phone 设计做 Home / New Game / In-game / Result / Review / Settings。
+- `crates/quintara-mobile`：移动端 DTO / JSON session facade，包装 `MatchConductor`、内置 bot 和 Rapfi `MoveSource`，Android 不直接碰内部 arbiter 类型。
+- `crates/quintara-android-jni`：Android 专用 `cdylib`，导出 JNI 函数，Kotlin 通过 JSON 建局、推进、取快照、导出 PSQ、释放 session。
+- 难度：Easy = sage，Medium = titan，Hard = onyx，Master = Rapfi。
+- Rapfi：Android 上作为 third-party native library 使用，打包 `librapfi.so` + 权重文件，经 C ABI 包成 `MoveSource`；不执行 `pbrain-rapfi` 可执行文件。
+- 当前已落地 Android 工程、Compose 第一版 UI、Rust mobile facade、JNI glue、arm64-v8a Rust native build，以及 Rapfi C ABI wrapper。后续补完整存档、设置持久化和更细的 UI 状态恢复。
+
+## P6 — FFI 库边界（给 Swift）
 
 - `ffi` crate：`cdylib` / `staticlib` + C-ABI（`cbindgen` 生成头文件）。
 - 暴露稳定的引擎 API：建局 / 落子 / 取状态 / 装配 player（含人类喂手）/ 事件轮询 / 回退 / PSQ。供 Swift GUI 链接。
 
-## P6 — Swift 全功能 GUI（独立项目）
+## P7 — Swift 全功能 GUI（独立项目）
 
 - 独立 repo / 目录，macOS 原生（SwiftUI / AppKit），经 P5 的 FFI（或驱动 CLI）消费同一引擎。
 - 完整桌面体验：鼠标落子、皮肤、设置对话框、配置持久化、声音、坐标、锦标赛 UI。

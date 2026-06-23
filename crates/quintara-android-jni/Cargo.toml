@@ -1,0 +1,26 @@
+[package]
+name = "quintara-android-jni"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+jni = { workspace = true }
+quintara-mobile = { workspace = true }
+quintara-rapfi = { workspace = true }
+serde_json = { workspace = true }
+
+[lints.rust]
+unsafe_code = "allow"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+todo = "warn"
+dbg_macro = "warn"
+unwrap_used = "warn"
+expect_used = "warn"

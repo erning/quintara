@@ -46,3 +46,7 @@ cargo run -q -p quintara-cli -- match \
 ## 三、许可
 
 Rapfi 为 GPL-3.0，其网络权重为 CC0。该适配器只是外部测试桥：引擎源码与（体积较大的）权重由 `build.sh` 按需拉取、被 git 忽略，不并入 quintara 仓库。
+
+## 四、Android 形态
+
+Android 应用不执行 `pbrain-rapfi`。移动端走库式接入：把 Rapfi 编成 `librapfi.so`，连同 `config.toml` 和权重文件打进 App，再由 `crates/quintara-rapfi` 包成 `MoveSource`。`apps/quintara-android/native/rapfi/rapfi_c_api.h` 是这条路径的 C ABI 边界，`rapfi_android.cpp` 负责把 upstream Rapfi C++ 源码包成 Android 可调用的动态库。

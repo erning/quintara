@@ -6,7 +6,7 @@
 
 quintara 是一个**跨平台的五子棋对局引擎与管理器**，个人爱好项目：人对 AI、人对人、AI 对 AI；管理 AI（brain）的协议通信、计时、规则、存档；后续锦标赛。
 
-**Rust 侧 = 引擎 + 命令行 / TUI 前端 + 将来给 GUI 的库边界**。最终 GUI **很可能用 Swift 另行实现**（macOS 原生），所以 Rust 侧**不急于做 GUI**：重点是把引擎做成一组**干净、可复用的库 crate**，并预留稳定的库边界（FFI / C-ABI，或经 CLI / 引擎库）供 Swift GUI 将来消费。**从命令行（CLI）起步。**
+**Rust 侧 = 引擎 + 命令行 / TUI 前端 + 移动端库边界**。当前新增 Android Phone 应用作为移动端入口；未来 macOS GUI 仍可用 Swift 另行实现。重点是把引擎做成一组**干净、可复用的库 crate**，并为 Android / Swift 等 GUI 预留稳定边界（JNI / FFI / C-ABI，或经 CLI / 引擎库）消费同一引擎。**从命令行（CLI）起步，移动端复用核心。**
 
 不做（至少初期）：网络对局 / 分布式锦标赛、Windows 注册表、自定义私有协议、Rust 端的正式 GUI。
 
@@ -17,7 +17,7 @@ quintara 是一个**跨平台的五子棋对局引擎与管理器**，个人爱�
 - **bot** — 一个 AI 机器人实现，代码在 `bots/`。**统一用这个词**，弃用 engine / agent 等同义词。
 - **`pbrain-<name>`** — bot 的**独立可执行形态**，讲 stdio [Gomocup 协议](./protocol/gomocup.md)（沿用 Gomocup 的 "brain" 叫法）。
 - 一个 bot 有两种部署：**(a) 静态编译进宿主**（进程内，仅范例 bot 这么用）；**(b) 独立 `pbrain-<name>` 可执行**，经 stdio 协议与主程序通信（**常见形态**）。
-- **arbiter** — 单局对局的权威编排组件（沿用这个名字），职责类似 Piskvork 的 `game.cpp`。**前端** — cli / tui / 将来的 Swift GUI。
+- **arbiter** — 单局对局的权威编排组件（沿用这个名字），职责类似 Piskvork 的 `game.cpp`。**前端** — cli / tui / Android / 将来的 Swift GUI。
 
 **核心原则：**
 
@@ -38,7 +38,7 @@ quintara 是一个**跨平台的五子棋对局引擎与管理器**，个人爱�
 分三类：**组件**（`crates/`，可复用库）、**我的机器人**（`bots/`，基于组件构建）、**应用**（`apps/`，组合组件成产品）。
 
 ```text
-组件 crates/（细分、纯、可复用——也供将来 Swift GUI 经 FFI 复用）
+组件 crates/（细分、纯、可复用——也供 Android / 将来 Swift GUI 经 FFI 复用）
   model     纯类型：Board(width×height) / Color / Position / Move / GameState / TurnContext / 坐标(X,Y)
   rules     纯规则：apply_move / legal_moves / is_win_for / 连珠禁手 / caro；RuleSet、Outcome
   opening   纯开局：Opening::None / Fixed + auto(count,size)（作用于局面；Swap/Swap2/连珠系统留后续）
@@ -49,8 +49,11 @@ quintara 是一个**跨平台的五子棋对局引擎与管理器**，个人爱�
               · serve(bot, name)：把 bot 跑成 pbrain-<name> 的 stdio 适配 —— 写 bot 用
               · spawn(cmd) -> ExternalBot：host 侧拉起并驱动外部 pbrain（子进程 / 管道 / 超时）—— arbiter 用
             **我自己的 Rust bot 就依赖这一个 crate**；协议字节只在 protocol / bot 内
+  rapfi     Rapfi 的库式接入边界：Android 上作为 native shared library 调用，不执行 pbrain 子进程
   arbiter   单局权威编排：持 GameState；统一 Player 端口（HumanPlayer / BuiltinPlayer / ExternalPlayer 同形）；
             MatchConductor 主循环、时钟、Rewind 悔棋、开局摆子、swap_seat 换座位；前端无关
+  mobile    移动端 facade：把 MatchConductor 包成稳定 DTO / JSON session，供 Android JNI 层消费
+  android-jni  Android 专用 cdylib：导出 JNI 函数，管理 mobile session handle，作为 Kotlin ↔ Rust 边界
 
 我的机器人 bots/（依赖 bot crate）
   <name>/   每个 bot 一个：lib(impl bot::MoveSource) + pbrain-<name> bin(用 bot::serve 讲 stdio)
@@ -58,7 +61,9 @@ quintara 是一个**跨平台的五子棋对局引擎与管理器**，个人爱�
 
 应用 apps/
   quintara-cli   `quintara` 二进制：文本对弈 + 交互式 TUI（src/tui.rs，ratatui）+ bot 开发 / 调试
-                 —— 全功能 GUI 是独立的 Swift 应用（不在本 workspace），经下面的 FFI / CLI 消费同一引擎
+  quintara-android  Android Phone 应用：Kotlin + Jetpack Compose；经 Rust/JNI facade 消费同一引擎；
+                    Rapfi 作为 `librapfi.so` 第三方库接入，不执行 `pbrain-rapfi`
+                 —— macOS 全功能 GUI 可继续作为独立 Swift 应用，经下面的 FFI / CLI 消费同一引擎
 
 将来（未建）
   arena     锦标赛：多局 + 统计 + 结果表（复用 arbiter）
@@ -69,9 +74,13 @@ quintara 是一个**跨平台的五子棋对局引擎与管理器**，个人爱�
 
 - 纯组件 `model` / `rules` / `opening` / `protocol` 互相只依赖更底层，**无 I/O、无全局状态**。
 - `bot` 依赖 `model` + `rules` + `protocol`（含子进程的 host 侧 + `serve` 适配）；**协议字节不外露**。
+- `rapfi` 依赖 `bot` + `model`，把 Rapfi native library 包成 `MoveSource`；Android 上走 C ABI / JNI，不走 pbrain 子进程。
 - `bots/<name>` 依赖 `bot`（+ `rules` / `model` 按需）。
 - `arbiter` 依赖 `model` + `rules` + `bot` + `protocol`（用 `MoveSource` / `ExternalBot` 装配 `Player` 端口；`protocol` 仅供 `ExternalPlayer` 内部构造 `BOARD` / `INFO`，不出端口）。
+- `mobile` 依赖 `arbiter` + 各内置 bot + `rapfi`，只产出移动端 DTO / JSON，不改变核心规则边界。
 - `apps/quintara-cli` 依赖 `arbiter` + 各组件 + 各 `bots/<name>`（作内置对手）+ `clap` / `ratatui`。
+- `android-jni` 依赖 `mobile` + `rapfi` + `jni`，导出 Android 需要的 `libquintara_android_jni.so`；JNI 层只做 JSON / handle 转发，不承载规则。
+- `apps/quintara-android` 依赖 Android / Kotlin / Compose；经 `android-jni` 调 `mobile` facade，并把 Rapfi 打包成 `librapfi.so`。
 - `record` 依赖 `model` + `arbiter`（投影对局事件成棋谱）。
 - Swift GUI（独立）将经 `ffi` 链接引擎，或驱动 `cli`。
 
@@ -82,11 +91,18 @@ flowchart TD
     PROTOCOL[protocol] --> MODEL
     BOT["bot (trait + serve + host)"] --> PROTOCOL
     BOT --> RULES
+    RAPFI["rapfi (native library MoveSource)"] --> BOT
     MYBOTS["bots/* (我的 bot)"] --> BOT
     ARBITER[arbiter: 单局编排] --> RULES & BOT & PROTOCOL
+    MOBILE["mobile facade (DTO / JSON)"] --> ARBITER
+    MOBILE --> MYBOTS
+    MOBILE --> RAPFI
+    ANDROID_JNI["android-jni (JNI cdylib)"] --> MOBILE
+    ANDROID_JNI --> RAPFI
     RECORD[record] --> ARBITER
     CLI["apps/quintara-cli (文本 + TUI + bot 调试)"] --> ARBITER
     CLI --> MYBOTS
+    ANDROID["apps/quintara-android (Phone Compose)"] --> ANDROID_JNI
     FFI[ffi: C-ABI · 未建] -.-> ARBITER
     SWIFT["Swift GUI (独立)"] -.FFI/CLI.-> FFI
 ```
@@ -150,6 +166,7 @@ MatchConductor:
 ### 3.4 应用与前端
 
 - **`apps/quintara-cli`**：`quintara` 二进制 = **对局管理器 + bot 开发 / 调试工具**。`match` 子命令支持人人 / 人机 / 机机对战、悔棋、存读 PSQ；`--tui` 进交互式 ratatui 棋盘（落子、悔棋 / 重做、存档、回看、`t` 换座位）；`show` 查看 PSQ 棋谱。player spec：`human` | `builtin:<name>` | 外部 pbrain 命令。子命令与参数见 [`roadmap.md`](./roadmap.md)。
+- **`apps/quintara-android`**：Android Phone 应用 = Kotlin + Jetpack Compose UI。移动端只渲染、收输入和保存设置；对局通过 `quintara-mobile` 的 DTO / JSON session 驱动 `MatchConductor`。难度映射为 Easy = sage、Medium = titan、Hard = onyx、Master = Rapfi。Rapfi 在 Android 上以 `librapfi.so` 第三方库形态接入，经 C ABI 包成 `MoveSource`；不执行 `pbrain-rapfi` 可执行文件。
 - **Swift GUI（独立、全功能）**：不在本 workspace；将经 `ffi`（C-ABI 链接引擎库）或驱动 `cli` 消费同一引擎。
 - 所有前端都只「驱动 arbiter + 渲染 + 收人类输入」，不含规则。
 
@@ -157,7 +174,7 @@ MatchConductor:
 
 1. **规则纯、唯一权威**：着法合法性、胜负、禁手只由 `rules` 裁决；`apply_move` 是唯一落子入口，arbiter 是唯一权威调用方。
 2. **协议只在 `protocol` / `bot` 内**：Gomocup 文本协议不外溢到前端；`arbiter` 仅在 `ExternalPlayer` 内部用它驱动子进程。
-3. **arbiter 前端无关**：cli / tui / Swift GUI 可替换，互不影响 arbiter 与各组件。
+3. **arbiter 前端无关**：cli / tui / Android / Swift GUI 可替换，互不影响 arbiter 与各组件。
 4. **玩家统一为 `Player` 端口**（request + poll 异步交付）：Human / 内置 bot / 外部 pbrain 对 arbiter 同形，差别只在端口内部取手路径与失败模式。
 5. **术语统一**：bot（AI 机器人，在 `bots/`）/ `pbrain-<name>`（其 stdio 可执行形态）；不混用 engine / agent / brain 指代 bot。
 6. **棋盘大小、规则、开局是三类正交参数**（与 Gomocup `-boardsize` / `-rule` / 开局一致）。
